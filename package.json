@@ -27,11 +27,9 @@
   "license": "Apache-2.0",
   "author": "Kaitai team (https://github.com/orgs/kaitai-io/people) and Ilmari Heikkinen",
   "type": "module",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
-  "exports": {
-    "KaitaiStream": "./dist/src/KaitaiStream.js"
-  },
+  "main": "dist/index.node.js",
+  "browser": "dist/index.browser.js",
+  "types": "dist/index.d.ts",
   "files": ["dist/*"],
   "scripts": {
     "build": "tsc",

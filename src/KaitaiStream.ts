@@ -1,18 +1,5 @@
 // -*- mode: js; js-indent-level: 2; -*-
 
-// Interfaces for optional dependencies
-interface IconvLite {
-  decode(buffer: Buffer | Uint8Array, encoding: string): string
-}
-
-interface Zlib {
-  inflateSync(buf: ArrayBuffer | NodeJS.ArrayBufferView): Buffer;
-}
-
-interface Pako {
-  inflate(data: Uint8Array | number[]): Uint8Array;
-}
-
 // Workaround for https://github.com/microsoft/TypeScript/issues/36470
 declare global {
   interface CallableFunction {
@@ -20,8 +7,12 @@ declare global {
   }
 }
 
-// When loaded into a web worker, pako gets added to the global scope
-declare const pako: Pako;
+export namespace KaitaiStream {
+  export interface ZlibHandler {
+    inflate(data: Uint8Array): Uint8Array;
+    deflate(data: Uint8Array): Uint8Array;
+  }
+}
 
 /**
  * KaitaiStream is an implementation of Kaitai Struct API for JavaScript.
@@ -32,18 +23,25 @@ export class KaitaiStream {
    * @param arrayBuffer ArrayBuffer to read from.
    * @param byteOffset Offset from arrayBuffer beginning for the KaitaiStream.
    */
-  public constructor(arrayBuffer: ArrayBuffer | DataView<ArrayBuffer> | number, byteOffset?: number) {
+  public constructor(arrayBuffer: ArrayBuffer | DataView<ArrayBuffer> | Uint8Array | number, byteOffset?: number) {
     this._byteOffset = byteOffset || 0;
-    if (arrayBuffer instanceof ArrayBuffer) {
-      this.buffer = arrayBuffer;
-    } else if (typeof arrayBuffer == "object") {
-      this.dataView = arrayBuffer;
-      if (byteOffset) {
-        this._byteOffset += byteOffset;
+
+    if (ArrayBuffer.isView(arrayBuffer)) {
+      if (arrayBuffer instanceof DataView) {
+        this.dataView = arrayBuffer;
+      } else {
+        const backing = arrayBuffer.buffer;
+        if (!(backing instanceof ArrayBuffer))
+          throw new TypeError(`Unsupported ArrayBuffer type: ${backing.constructor.name}`);
+        this.buffer = backing;
+        this._byteOffset += arrayBuffer.byteOffset;
       }
+    } else if (arrayBuffer instanceof ArrayBuffer) {
+      this.buffer = arrayBuffer;
     } else {
       this.buffer = new ArrayBuffer(arrayBuffer || 1);
     }
+
     this.pos = 0;
     this.alignToByte();
   }
@@ -63,22 +61,10 @@ export class KaitaiStream {
   public bitsLeft = 0;
 
   /**
-   * Dependency configuration data. Holds urls for (optional) dynamic loading
-   * of code dependencies from a remote server. For use by (static) processing functions.
-   *
-   * Caller should the supported keys to the asset urls as needed.
-   * NOTE: `depUrls` is a static property of KaitaiStream (the factory), like the various
-   * processing functions. It is NOT part of the prototype of instances.
+   * Runtime implementation for zlib compression.
+   * This is dependent on the environment (NodeJS or Browser).
    */
-  public static depUrls: Record<string, string | undefined> = {
-    // processZlib uses this and expected a link to a copy of pako.
-    // specifically the pako_inflate.min.js script at:
-    // https://raw.githubusercontent.com/nodeca/pako/master/dist/pako_inflate.min.js
-    zlib: undefined
-  };
-
-  public static iconvlite?: IconvLite;
-  public static zlib?: Pako | Zlib;
+  public static zlibHandler?: KaitaiStream.ZlibHandler | undefined;
 
   /**
    * Gets the backing ArrayBuffer of the KaitaiStream object.
@@ -783,30 +769,7 @@ export class KaitaiStream {
     if (encoding == null || encoding.toLowerCase() === "ascii") {
       return KaitaiStream.createStringFromArray(arr);
     } else {
-      if (typeof TextDecoder === 'function') {
-        // we're in a browser that supports TextDecoder, or in Node.js 11 or later
-        return (new TextDecoder(encoding)).decode(arr);
-      } else {
-        // probably we're in Node.js < 11
-
-        // check if it's supported natively by Node.js Buffer
-        // see https://nodejs.org/docs/latest-v10.x/api/buffer.html#buffer_buffers_and_character_encodings
-        switch (encoding.toLowerCase()) {
-          case 'utf8':
-          case 'utf-8':
-          case 'ucs2':
-          case 'ucs-2':
-          case 'utf16le':
-          case 'utf-16le':
-            return Buffer.from(arr).toString(encoding as BufferEncoding);
-          default:
-            // unsupported encoding, we'll have to resort to iconv-lite
-            if (typeof KaitaiStream.iconvlite === 'undefined')
-              KaitaiStream.iconvlite = require('iconv-lite') as IconvLite;
-
-            return KaitaiStream.iconvlite.decode(arr, encoding);
-        }
-      }
+      return (new TextDecoder(encoding)).decode(arr);
     }
   }
 
@@ -872,27 +835,9 @@ export class KaitaiStream {
    * @returns The uncompressed bytes.
    */
   public static processZlib(buf: Uint8Array): Uint8Array {
-    if (typeof require !== 'undefined') {
-      // require is available - we're running under node
-      if (typeof KaitaiStream.zlib === 'undefined')
-        KaitaiStream.zlib = require('zlib') as Zlib;
-      // use node's zlib module API
-      const r = (KaitaiStream.zlib as Zlib).inflateSync(
-          Buffer.from(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
-      );
-      return new Uint8Array(r.buffer, r.byteOffset, r.length);
-    } else {
-      // no require() - assume we're running as a web worker in browser.
-      // user should have configured KaitaiStream.depUrls.zlib, if not
-      // we'll throw.
-      if (typeof KaitaiStream.zlib === 'undefined'
-        && typeof KaitaiStream.depUrls.zlib !== 'undefined') {
-        importScripts(KaitaiStream.depUrls.zlib);
-        KaitaiStream.zlib = pako;
-      }
-      // use pako API
-      return (KaitaiStream.zlib as Pako).inflate(buf);
-    }
+    if (!KaitaiStream.zlibHandler)
+      throw new Error("KaitaiStream.zlibHandler is not set");
+    return KaitaiStream.zlibHandler.inflate(buf);
   }
 
   // ========================================================================
@@ -971,6 +916,36 @@ export class KaitaiStream {
     }
   }
 
+  /**
+   * Converts a byte array to a hex string.
+   *
+   * @param arr The input byte array.
+   * @returns The hex string.
+   */
+  public static byteArrayToHex(arr: Uint8Array): string {
+    let str = '[';
+    for (let i = 0; i < arr.length; i++) {
+      if (i > 0) str += ' ';
+      str += arr[i]!.toString(16).padStart(2, '0');
+    }
+    str += ']';
+    return str;
+  }
+
+  /**
+   * Stringify value for debugging purposes.
+   *
+   * @param value The value to stringify.
+   * @returns The stringified value.
+   */
+  public static stringifyValue(value: any): string {
+    if (value instanceof Uint8Array) {
+      return this.byteArrayToHex(value);
+    } else {
+      return String(value);
+    }
+  }
+
   // ========================================================================
   // Internal implementation details
   // ========================================================================
@@ -1026,7 +1001,6 @@ export class KaitaiStream {
 
 export namespace KaitaiStream {
   export class EOFError extends Error {
-    public name = "EOFError";
     public bytesReq: number;
     public bytesAvail: number;
 
@@ -1035,19 +1009,16 @@ export namespace KaitaiStream {
      * @param bytesAvail The number of bytes available.
      */
     public constructor(bytesReq: number, bytesAvail: number) {
-      super("requested " + bytesReq + " bytes, but only " + bytesAvail + " bytes available");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.EOFError.prototype);
+      super(`requested ${bytesReq} bytes, but only ${bytesAvail} bytes available`);
       this.bytesReq = bytesReq;
       this.bytesAvail = bytesAvail;
     }
-  };
+  }
 
   /**
    * Unused since Kaitai Struct Compiler v0.9+ - compatibility with older versions.
    */
   export class UnexpectedDataError extends Error {
-    public name = "UnexpectedDataError";
     public expected: any;
     public actual: any;
 
@@ -1056,122 +1027,158 @@ export namespace KaitaiStream {
      * @param actual The actual value.
      */
     public constructor(expected: any, actual: any) {
-      super("expected [" + expected + "], but got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.UnexpectedDataError.prototype);
+      const expectedStr = KaitaiStream.stringifyValue(expected);
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`expected ${expectedStr}, but got ${actualStr}`);
       this.expected = expected;
       this.actual = actual;
     }
-  };
+  }
 
-  export class UndecidedEndiannessError extends Error {
-    public name = "UndecidedEndiannessError";
+  /**
+   * Error that occurs when default endianness should be decided with a
+   * switch, but nothing matches (although using endianness expression
+   * implies that there should be some positive result).
+   */
+  export class UndecidedEndiannessError extends Error { }
 
-    public constructor() {
-      super();
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.UndecidedEndiannessError.prototype);
+  /**
+   * Common ancestor for all error originating from Kaitai Struct usage.
+   * Stores a KSY source path, pointing to an element supposedly guilty of
+   * an error.
+   */
+  class KaitaiStructError extends Error {
+    public srcPath?: string | undefined;
+
+    /**
+     * @param msg Error message.
+     * @param srcPath The path to the KSY source element.
+     */
+    public constructor(msg: string, srcPath?: string) {
+      super(`${srcPath ? srcPath + ": " : ""}${msg}`);
+      this.srcPath = srcPath;
     }
-  };
+  }
 
-  export class ValidationNotEqualError extends Error {
-    public name = "ValidationNotEqualError";
+  /**
+   * Common ancestor for all validation failures. Stores a pointer to
+   * KaitaiStream IO object which was involved in an error.
+   */
+  export class ValidationFailedError extends KaitaiStructError {
+    public io?: KaitaiStream | undefined;
+
+    /**
+     * @param msg Error message.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
+     */
+    constructor(msg: string, io?: KaitaiStream, srcPath?: string) {
+      super(`${io !== undefined ? 'at pos ' + io.pos + ': ' : ''}validation failed: ${msg}`, srcPath);
+      this.io = io;
+    }
+  }
+
+  /**
+   * Signals validation failure: we required "actual" value to be equal to
+   * "expected", but it turned out that it's not.
+   */
+  export class ValidationNotEqualError extends ValidationFailedError {
     public expected: any;
     public actual: any;
 
     /**
      * @param expected The expected value.
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(expected: any, actual: any) {
-      super("not equal, expected [" + expected + "], but got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationNotEqualError.prototype);
+    constructor(expected: any, actual: any, io?: KaitaiStream, srcPath?: string) {
+      const expectedStr = KaitaiStream.stringifyValue(expected);
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`not equal, expected ${expectedStr}, but got ${actualStr}`, io, srcPath);
       this.expected = expected;
       this.actual = actual;
     }
-  };
+  }
 
-  export class ValidationLessThanError extends Error {
-    public name = "ValidationLessThanError";
+  export class ValidationLessThanError extends ValidationFailedError {
     public min: any;
     public actual: any;
 
     /**
      * @param min The minimum allowed value.
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(min: any, actual: any) {
-      super("not in range, min [" + min + "], but got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationLessThanError.prototype);
+    constructor(min: any, actual: any, io?: KaitaiStream, srcPath?: string) {
+      const minStr = KaitaiStream.stringifyValue(min);
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`not in range, min ${minStr}, but got ${actualStr}`, io, srcPath);
       this.min = min;
       this.actual = actual;
     }
-  };
+  }
 
-  export class ValidationGreaterThanError extends Error {
-    public name = "ValidationGreaterThanError";
+  export class ValidationGreaterThanError extends ValidationFailedError {
     public max: any;
     public actual: any;
 
     /**
      * @param max The maximum allowed value.
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(max: any, actual: any) {
-      super("not in range, max [" + max + "], but got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationGreaterThanError.prototype);
+    constructor(max: any, actual: any, io?: KaitaiStream, srcPath?: string) {
+      const maxStr = KaitaiStream.stringifyValue(max);
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`not in range, max ${maxStr}, but got ${actualStr}`, io, srcPath);
       this.max = max;
       this.actual = actual;
     }
-  };
-
-  export class ValidationNotAnyOfError extends Error {
-    public name = "ValidationNotAnyOfError";
+  }
+  export class ValidationNotAnyOfError extends ValidationFailedError {
     public actual: any;
 
     /**
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(actual: any) {
-      super("not any of the list, got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationNotAnyOfError.prototype);
+    constructor(actual: any, io?: KaitaiStream, srcPath?: string) {
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`not any of the list, got ${actualStr}`, io, srcPath);
       this.actual = actual;
     }
-  };
+  }
 
-  export class ValidationNotInEnumError extends Error {
-    public name = "ValidationNotInEnumError";
+  export class ValidationNotInEnumError extends ValidationFailedError {
     public actual: any;
 
     /**
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(actual: any) {
-      super("not in the enum, got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationNotInEnumError.prototype);
+    constructor(actual: any, io?: KaitaiStream, srcPath?: string) {
+      const actualStr = KaitaiStream.stringifyValue(actual);
+      super(`not in the enum, got ${actualStr}`, io, srcPath);
       this.actual = actual;
     }
-  };
+  }
 
-  export class ValidationExprError extends Error {
-    public name = "ValidationExprError";
+  export class ValidationExprError extends ValidationFailedError {
     public actual: any;
 
     /**
      * @param actual The actual value.
+     * @param io The KaitaiStream IO object which was involved in an error.
+     * @param srcPath The path to the KSY source element.
      */
-    public constructor(actual: any) {
-      super("not matching the expression, got [" + actual + "]");
-      // Workaround https://www.typescriptlang.org/docs/handbook/2/classes.html#inheriting-built-in-types
-      Object.setPrototypeOf(this, KaitaiStream.ValidationExprError.prototype);
+    public constructor(actual: any, io?: KaitaiStream, srcPath?: string) {
+      super(`not matching the expression, got ${actual}`, io, srcPath);
       this.actual = actual;
     }
-  };
+  }
 }
-
-export default KaitaiStream;
