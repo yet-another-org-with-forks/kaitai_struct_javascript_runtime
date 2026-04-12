@@ -27,7 +27,7 @@ declare const pako: Pako;
  * KaitaiStream is an implementation of Kaitai Struct API for JavaScript.
  * Based on DataStream - https://github.com/kig/DataStream.js .
  */
-class KaitaiStream {
+export class KaitaiStream {
   /**
    * @param arrayBuffer ArrayBuffer to read from.
    * @param byteOffset Offset from arrayBuffer beginning for the KaitaiStream.
@@ -522,7 +522,7 @@ class KaitaiStream {
       const bytesNeeded = ((bitsNeeded - 1) >> 3) + 1; // `ceil(bitsNeeded / 8)` (NB: `x >> 3` is `floor(x / 8)`)
       const buf = this.mapUint8Array(bytesNeeded);
       for (let i = 0; i < bytesNeeded; i++) {
-        res = res << 8 | buf[i];
+        res = res << 8 | buf[i]!;
       }
 
       const newBits = res;
@@ -572,7 +572,7 @@ class KaitaiStream {
       const bytesNeeded = ((bitsNeeded - 1) >> 3) + 1; // `ceil(bitsNeeded / 8)` (NB: `x >> 3` is `floor(x / 8)`)
       const buf = this.mapUint8Array(bytesNeeded);
       for (let i = 0; i < bytesNeeded; i++) {
-        res |= buf[i] << (i * 8);
+        res |= buf[i]! << (i * 8);
       }
 
       // NB: in JavaScript, bit shift operators always shift by modulo 32 of the right-hand operand (see
@@ -602,7 +602,7 @@ class KaitaiStream {
    * Native endianness. Either KaitaiStream.BIG_ENDIAN or KaitaiStream.LITTLE_ENDIAN
    * depending on the platform endianness.
    */
-  public static endianness: boolean = new Int8Array(new Int16Array([1]).buffer)[0] > 0;
+  public static endianness: boolean = new Int8Array(new Int16Array([1]).buffer)[0]! > 0;
 
   // ========================================================================
   // Byte arrays
@@ -823,7 +823,7 @@ class KaitaiStream {
     const r = new Uint8Array(data.length);
     const dl = data.length;
     for (let i = 0; i < dl; i++)
-      r[i] = data[i] ^ key;
+      r[i] = data[i]! ^ key;
     return r;
   }
 
@@ -838,7 +838,7 @@ class KaitaiStream {
     const kl = key.length;
     let ki = 0;
     for (let i = 0; i < dl; i++) {
-      r[i] = data[i] ^ key[ki];
+      r[i] = data[i]! ^ key[ki]!;
       ki++;
       if (ki >= kl)
         ki = 0;
@@ -862,7 +862,7 @@ class KaitaiStream {
 
     const r = new Uint8Array(data.length);
     for (let i = 0; i < data.length; i++)
-      r[i] = (data[i] << amount) & 0xff | (data[i] >> antiAmount);
+      r[i] = (data[i]! << amount) & 0xff | (data[i]! >> antiAmount);
 
     return r;
   }
@@ -921,10 +921,9 @@ class KaitaiStream {
    * @returns The smallest value.
    */
   public static arrayMin(arr: ArrayLike<number>): number {
-    let min = arr[0];
-    let x;
-    for (let i = 1, n = arr.length; i < n; ++i) {
-      x = arr[i];
+    let min = Infinity;
+    for (let i = 0, n = arr.length; i < n; ++i) {
+      const x = arr[i]!;
       if (x < min) min = x;
     }
     return min;
@@ -937,10 +936,9 @@ class KaitaiStream {
    * @returns The largest value.
    */
   public static arrayMax(arr: ArrayLike<number>): number {
-    let max = arr[0];
-    let x;
-    for (let i = 1, n = arr.length; i < n; ++i) {
-      x = arr[i];
+    let max = -Infinity;
+    for (let i = 0, n = arr.length; i < n; ++i) {
+      const x = arr[i]!;
       if (x > max) max = x;
     }
     return max;
@@ -960,7 +958,7 @@ class KaitaiStream {
     const bl = b.length;
     const minLen = al < bl ? al : bl;
     for (let i = 0; i < minLen; i++) {
-      const cmp = a[i] - b[i];
+      const cmp = a[i]! - b[i]!;
       if (cmp !== 0)
         return cmp;
     }
@@ -1026,7 +1024,7 @@ class KaitaiStream {
   }
 }
 
-namespace KaitaiStream {
+export namespace KaitaiStream {
   export class EOFError extends Error {
     public name = "EOFError";
     public bytesReq: number;

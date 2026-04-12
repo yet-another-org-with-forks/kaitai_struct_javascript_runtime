@@ -19,7 +19,7 @@ Further reading:
 ## Development
 
 After cloning this repository, you must run these commands to compile the
-TypeScript source file [`KaitaiStream.ts`](./KaitaiStream.ts) into the
+TypeScript source file [`KaitaiStream.ts`](src/KaitaiStream.ts) into the
 `KaitaiStream.js` file (ignored by Git) with JavaScript code:
 
 ```shell
@@ -28,7 +28,7 @@ npm run build
 ```
 
 `npm run build` also needs to be run after each change to
-[`KaitaiStream.ts`](./KaitaiStream.ts).
+[`KaitaiStream.ts`](src/KaitaiStream.ts).
 
 ## Licensing
 
