@@ -774,6 +774,23 @@ export class KaitaiStream {
   }
 
   // ========================================================================
+  // Zero-copy substreams
+  // ========================================================================
+
+  public substream(n: number): KaitaiStream {
+    this.alignToByte();
+    this.ensureBytesLeft(n);
+
+    const offset = this.byteOffset + this.pos;
+    const view = new DataView(this._buffer, offset, n);
+    const stream = new KaitaiStream(view);
+
+    this.pos += n;
+
+    return stream;
+  }
+
+  // ========================================================================
   // Byte array processing
   // ========================================================================
 
