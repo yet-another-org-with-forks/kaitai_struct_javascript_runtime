@@ -631,9 +631,9 @@ export class KaitaiStream {
         arr = this.mapUint8Array(i + 1);
       } else {
         arr = this.mapUint8Array(i);
-      }
-      if (consume) {
-        this.pos += 1;
+        if (consume) {
+          this.pos += 1;
+        }
       }
       return arr;
     }
