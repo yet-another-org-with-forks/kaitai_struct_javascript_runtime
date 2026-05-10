@@ -873,10 +873,12 @@ export class KaitaiStream {
    * @param arr The input array.
    * @returns The smallest value.
    */
-  public static arrayMin(arr: ArrayLike<number>): number {
-    let min = Infinity;
-    for (let i = 0, n = arr.length; i < n; ++i) {
-      const x = arr[i]!;
+  public static arrayMin<T = number>(arr: ArrayLike<T>): T {
+    if (arr.length === 0)
+      throw new RangeError("arrayMin: empty array");
+    let min = arr[0]!;
+    for (let i = 1, n = arr.length; i < n; ++i) {
+      let x = arr[i]!;
       if (x < min) min = x;
     }
     return min;
@@ -888,10 +890,12 @@ export class KaitaiStream {
    * @param arr The input array.
    * @returns The largest value.
    */
-  public static arrayMax(arr: ArrayLike<number>): number {
-    let max = -Infinity;
-    for (let i = 0, n = arr.length; i < n; ++i) {
-      const x = arr[i]!;
+  public static arrayMax<T = number>(arr: ArrayLike<T>): T {
+    if (arr.length === 0)
+      throw new RangeError("arrayMax: empty array");
+    let max = arr[0]!;
+    for (let i = 1, n = arr.length; i < n; ++i) {
+      let x = arr[i]!;
       if (x > max) max = x;
     }
     return max;
