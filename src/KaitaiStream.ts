@@ -23,25 +23,16 @@ export class KaitaiStream {
    * @param arrayBuffer ArrayBuffer to read from.
    * @param byteOffset Offset from arrayBuffer beginning for the KaitaiStream.
    */
-  public constructor(arrayBuffer: ArrayBuffer | DataView<ArrayBuffer> | Uint8Array | number, byteOffset?: number) {
-    this._byteOffset = byteOffset || 0;
-
+  public constructor(arrayBuffer: ArrayBuffer | DataView<ArrayBuffer> | Uint8Array<ArrayBuffer> | number, byteOffset?: number) {
     if (ArrayBuffer.isView(arrayBuffer)) {
-      if (arrayBuffer instanceof DataView) {
-        this.dataView = arrayBuffer;
-      } else {
-        const backing = arrayBuffer.buffer;
-        if (!(backing instanceof ArrayBuffer))
-          throw new TypeError(`Unsupported ArrayBuffer type: ${backing.constructor.name}`);
-        this.buffer = backing;
-        this._byteOffset += arrayBuffer.byteOffset;
-      }
+      this.dataView = arrayBuffer;
     } else if (arrayBuffer instanceof ArrayBuffer) {
       this.buffer = arrayBuffer;
     } else {
       this.buffer = new ArrayBuffer(arrayBuffer || 1);
     }
 
+    this._byteOffset += byteOffset || 0;
     this.pos = 0;
     this.alignToByte();
   }
@@ -117,7 +108,7 @@ export class KaitaiStream {
    * Sets the backing DataView of the KaitaiStream object and updates the buffer
    * and byteOffset to point to the DataView values.
    */
-  public set dataView(v: DataView<ArrayBuffer>) {
+  public set dataView(v: DataView<ArrayBuffer> | Uint8Array<ArrayBuffer>) {
     this._byteOffset = v.byteOffset;
     this._buffer = v.buffer;
     this._dataView = new DataView(this._buffer, this._byteOffset);
@@ -1018,6 +1009,7 @@ export class KaitaiStream {
 
 export namespace KaitaiStream {
   export class EOFError extends Error {
+    public name = "EOFError";
     public bytesReq: number;
     public bytesAvail: number;
 
@@ -1036,6 +1028,7 @@ export namespace KaitaiStream {
    * Unused since Kaitai Struct Compiler v0.9+ - compatibility with older versions.
    */
   export class UnexpectedDataError extends Error {
+    public name = "UnexpectedDataError";
     public expected: any;
     public actual: any;
 
@@ -1057,7 +1050,13 @@ export namespace KaitaiStream {
    * switch, but nothing matches (although using endianness expression
    * implies that there should be some positive result).
    */
-  export class UndecidedEndiannessError extends Error { }
+  export class UndecidedEndiannessError extends Error {
+    public name = "UndecidedEndiannessError";
+
+    constructor() {
+      super('unable to decide on endianness for a type')
+    }
+  }
 
   /**
    * Common ancestor for all error originating from Kaitai Struct usage.
@@ -1065,6 +1064,7 @@ export namespace KaitaiStream {
    * an error.
    */
   class KaitaiStructError extends Error {
+    public name = "KaitaiStructError";
     public srcPath?: string | undefined;
 
     /**
@@ -1082,6 +1082,7 @@ export namespace KaitaiStream {
    * KaitaiStream IO object which was involved in an error.
    */
   export class ValidationFailedError extends KaitaiStructError {
+    public name = "ValidationFailedError";
     public io?: KaitaiStream | undefined;
 
     /**
@@ -1100,6 +1101,7 @@ export namespace KaitaiStream {
    * "expected", but it turned out that it's not.
    */
   export class ValidationNotEqualError extends ValidationFailedError {
+    public name = "ValidationNotEqualError";
     public expected: any;
     public actual: any;
 
@@ -1119,6 +1121,7 @@ export namespace KaitaiStream {
   }
 
   export class ValidationLessThanError extends ValidationFailedError {
+    public name = "ValidationLessThanError";
     public min: any;
     public actual: any;
 
@@ -1138,6 +1141,7 @@ export namespace KaitaiStream {
   }
 
   export class ValidationGreaterThanError extends ValidationFailedError {
+    public name = "ValidationGreaterThanError";
     public max: any;
     public actual: any;
 
@@ -1156,6 +1160,7 @@ export namespace KaitaiStream {
     }
   }
   export class ValidationNotAnyOfError extends ValidationFailedError {
+    public name = "ValidationNotAnyOfError";
     public actual: any;
 
     /**
@@ -1171,6 +1176,7 @@ export namespace KaitaiStream {
   }
 
   export class ValidationNotInEnumError extends ValidationFailedError {
+    public name = "ValidationNotInEnumError";
     public actual: any;
 
     /**
@@ -1186,6 +1192,7 @@ export namespace KaitaiStream {
   }
 
   export class ValidationExprError extends ValidationFailedError {
+    public name = "ValidationExprError";
     public actual: any;
 
     /**

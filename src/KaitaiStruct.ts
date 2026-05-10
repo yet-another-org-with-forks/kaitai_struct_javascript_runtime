@@ -96,6 +96,8 @@ export namespace KaitaiStruct {
    * ({@link KaitaiStruct.ReadWrite#_check()}) since the last modification.
    */
   export class ConsistencyNotCheckedError extends Error {
+    public name = "ConsistencyNotCheckedError";
+
     public constructor() {
       super("consistency not checked: _check() has not been called since the last modification of the object");
     }
